@@ -7,7 +7,7 @@ from .settings import Settings
 from .db import create_db
 from .web import create_app
 from .twitter import Twitter
-from .import_export import ImportExport
+from .exclusions import Exclusions
 
 version = "0.7"
 
@@ -115,7 +115,7 @@ def delete_dms(filename):
 )
 def excluded_export(filename):
     common = init()
-    ie = ImportExport(common)
+    ie = Exclusions(common)
     ie.excluded_export(filename)
 
 
@@ -132,5 +132,5 @@ def excluded_import(filename):
     common = init()
     t = Twitter(common)
     if common.settings.is_configured():
-        ie = ImportExport(common, t)
+        ie = Exclusions(common, t)
         ie.excluded_import(filename)

@@ -4,7 +4,7 @@ import json
 from .db import Tweet
 
 
-class ImportExport:
+class Exclusions:
     def __init__(self, common, twitter=None):
         self.common = common
         self.twitter = twitter
