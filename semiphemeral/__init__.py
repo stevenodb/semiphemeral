@@ -1,15 +1,15 @@
 import os
 import click
-import json
 
 from .common import Common
 from .settings import Settings
 from .db import create_db
+from .twitterdata import TwitterData
 from .web import create_app
 from .twitter import Twitter
 from .exclusions import Exclusions
 
-version = "0.7"
+version = "0.8"
 
 
 def init():
@@ -134,3 +134,18 @@ def excluded_import(filename):
     if common.settings.is_configured():
         ie = Exclusions(common, t)
         ie.excluded_import(filename)
+
+
+@main.command(
+    "twitterdata",
+    short_help="Imports from twitter data",
+)
+@click.option(
+    "--filename",
+    required=True,
+    help="JSON file to import from",
+)
+def twitterdata_import(filename):
+    cmn = init()
+    td = TwitterData(cmn, Twitter(cmn))
+    td.import_twitterdata(filename)

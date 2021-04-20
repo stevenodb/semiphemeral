@@ -1,6 +1,5 @@
 import tweepy
 import click
-import json
 import datetime
 import os
 import json
@@ -70,90 +69,18 @@ class Twitter(object):
                 since_id=since_id,
                 tweet_mode="extended",
             ).pages():
-                fetched_count = 0
+                self.import_statuses(page)
 
-                # Import these tweets, and all their threads
-                for status in page:
-                    fetched_count += self.import_tweet_and_thread(Tweet(status))
-
-                    # Only commit every 20 tweets
-                    if fetched_count % 20 == 0:
-                        self.common.session.commit()
-
-                # Commit the leftovers
-                self.common.session.commit()
-
-                # Now hunt for threads. This is a dict that maps the root status_id
-                # to a list of status_ids in the thread
-                threads = {}
-                for status in page:
-                    if status.in_reply_to_status_id:
-                        status_ids = self.calculate_thread(status.id)
-                        root_status_id = status_ids[0]
-                        if root_status_id in threads:
-                            for status_id in status_ids:
-                                if status_id not in threads[root_status_id]:
-                                    threads[root_status_id].append(status_id)
-                        else:
-                            threads[root_status_id] = status_ids
-
-                # For each thread, does this thread already exist, or do we create a new one?
-                for root_status_id in threads:
-                    status_ids = threads[root_status_id]
-                    thread = (
-                        self.common.session.query(Thread)
-                        .filter_by(root_status_id=root_status_id)
-                        .first()
-                    )
-                    if not thread:
-                        thread = Thread(root_status_id)
-                        count = 0
-                        for status_id in status_ids:
-                            tweet = (
-                                self.common.session.query(Tweet)
-                                .filter_by(status_id=status_id)
-                                .first()
-                            )
-                            if tweet:
-                                thread.tweets.append(tweet)
-                                count += 1
-                        if count > 0:
-                            click.echo(
-                                "Added new thread with {} tweets (root id={})".format(
-                                    count, root_status_id
-                                )
-                            )
-                    else:
-                        count = 0
-                        for status_id in status_ids:
-                            tweet = (
-                                self.common.session.query(Tweet)
-                                .filter_by(status_id=status_id)
-                                .first()
-                            )
-                            if tweet and tweet not in thread.tweets:
-                                thread.tweets.append(tweet)
-                                count += 1
-                        if count > 0:
-                            click.echo(
-                                "Added {} tweets to existing thread (root id={})".format(
-                                    count, root_status_id
-                                )
-                            )
-                    self.common.session.commit()
-
-        if self.common.settings.get("retweets_likes") and self.common.settings.get(
-            "retweets_likes_delete_likes"
-        ):
+        if self.common.settings.get("retweets_likes") and self.common.settings.get("retweets_likes_delete_likes"):
             like_since_id = self.common.settings.get("since_id")
 
             # Fetch tweets that are liked
             click.secho("Fetching tweets that you liked", fg="cyan")
             for page in tweepy.Cursor(
-                self.api.favorites,
-                id=self.common.settings.get("username"),
-                since_id=like_since_id,
-                tweet_mode="extended",
+                    self.api.favorites,
+                    id=self.common.settings.get("username"),
+                    since_id=like_since_id,
+                    tweet_mode="extended",
             ).pages():
                 # Import these tweets
                 for status in page:
@@ -187,6 +114,80 @@ class Twitter(object):
             % datetime.datetime.today().strftime(self.last_fetch_format)
         )
 
+    def import_statuses(self, iterable) -> int:
+        fetched_count = 0
+        # Import these tweets, and all their threads
+        for status in iterable:
+            if not status:
+                continue
+
+            fetched_count += self.import_tweet_and_thread(Tweet(status))
+
+            # Only commit every 20 tweets
+            if fetched_count % 20 == 0:
+                self.common.session.commit()
+
+        # Commit the leftovers
+        self.common.session.commit()
+        # Now hunt for threads. This is a dict that maps the root status_id
+        # to a list of status_ids in the thread
+        threads = {}
+        for status in iterable:
+            if status.in_reply_to_status_id:
+                status_ids = self.calculate_thread(status.id)
+                root_status_id = status_ids[0]
+                if root_status_id in threads:
+                    for status_id in status_ids:
+                        if status_id not in threads[root_status_id]:
+                            threads[root_status_id].append(status_id)
+                else:
+                    threads[root_status_id] = status_ids
+        # For each thread, does this thread already exist, or do we create a new one?
+        for root_status_id in threads:
+            status_ids = threads[root_status_id]
+            thread = (
+                self.common.session.query(Thread)
+                    .filter_by(root_status_id=root_status_id)
+                    .first()
+            )
+            if not thread:
+                thread = Thread(root_status_id)
+                count = 0
+                for status_id in status_ids:
+                    tweet = (
+                        self.common.session.query(Tweet)
+                        .filter_by(status_id=status_id)
+                        .first()
+                    )
+                    if tweet:
+                        thread.tweets.append(tweet)
+                        count += 1
+                if count > 0:
+                    click.echo(
+                        "Added new thread with {} tweets (root id={})".format(
+                            count, root_status_id
+                        )
+                    )
+            else:
+                count = 0
+                for status_id in status_ids:
+                    tweet = (
+                        self.common.session.query(Tweet)
+                        .filter_by(status_id=status_id)
+                        .first()
+                    )
+                    if tweet and tweet not in thread.tweets:
+                        thread.tweets.append(tweet)
+                        count += 1
+                if count > 0:
+                    click.echo(
+                        "Added {} tweets to existing thread (root id={})".format(
+                            count, root_status_id
+                        )
+                    )
+            self.common.session.commit()
+        return fetched_count
+
     def calculate_thread(self, status_id):
         """
         Given a tweet, recursively add its parents to a thread. In this end, the first
@@ -217,8 +218,8 @@ class Twitter(object):
             # Do we already have the parent tweet?
             parent_tweet = (
                 self.common.session.query(Tweet)
-                .filter_by(status_id=tweet.in_reply_to_status_id)
-                .first()
+                    .filter_by(status_id=tweet.in_reply_to_status_id)
+                    .first()
             )
             if not parent_tweet:
                 # If not, import it
@@ -276,6 +277,92 @@ class Twitter(object):
         self.fetch()
 
         # Unretweet and unlike tweets
+        self.remove_retweets()
+
+        # Unlike
+        self.remove_likes()
+
+        # Deleting tweets
+        self.delete_tweets()
+
+        # Delete DMs
+        self.remove_dms()
+
+    def remove_dms(self):
+        if self.common.settings.get("delete_dms"):
+            datetime_threshold = datetime.datetime.utcnow() - datetime.timedelta(
+                days=self.common.settings.get("dms_days_threshold")
+            )
+
+            # Sadly, only the last 30 days worth
+            # https://developer.twitter.com/en/docs/direct-messages/sending-and-receiving/api-reference/list-events
+            click.secho(
+                "Fetching direct message metadata for the last 30 days", fg="cyan"
+            )
+
+            # Fetch direct messages
+            count = 0
+            for page in tweepy.Cursor(self.api.list_direct_messages).pages():
+                for dm in page:
+                    created_timestamp = datetime.datetime.fromtimestamp(
+                        int(dm.created_timestamp) / 1000
+                    )
+                    if created_timestamp <= datetime_threshold:
+                        self.api.destroy_direct_message(dm.id)
+                        click.echo(
+                            "Deleted DM {}, id {}".format(
+                                created_timestamp.strftime("%Y-%m-%d"), dm.id
+                            )
+                        )
+                        count += 1
+                    else:
+                        click.secho(
+                            "Skipping DM {}, id {}".format(
+                                created_timestamp.strftime("%Y-%m-%d"), dm.id
+                            ),
+                            dim=True,
+                        )
+
+            self.common.log("Deleted %s DMs" % count)
+
+    def delete_tweets(self):
+        if self.common.settings.get("delete_tweets"):
+            tweets_to_delete = self.common.get_tweets_to_delete()
+
+            click.secho(
+                "Deleting {} tweets, starting with the earliest".format(
+                    len(tweets_to_delete)
+                ),
+                fg="cyan",
+            )
+
+            count = 0
+            for tweet in tweets_to_delete:
+                try:
+                    self.api.destroy_status(tweet.status_id)
+                    tweet.delete_summarize()
+                    tweet.is_deleted = True
+                    self.common.session.add(tweet)
+                except tweepy.error.TweepError as e:
+                    if e.api_code == 144:
+                        click.echo(
+                            "Error, tweet {} is already deleted, updating database".format(
+                                tweet.status_id
+                            )
+                        )
+                        tweet.is_deleted = True
+                        self.common.session.add(tweet)
+                    else:
+                        click.echo("Error for tweet {}: {}".format(tweet.status_id, e))
+
+                count += 1
+                if count % 20 == 0:
+                    self.common.session.commit()
+
+            self.common.session.commit()
+            self.common.log("Deleted %s tweets" % count)
+
+    def remove_retweets(self):
         if self.common.settings.get("retweets_likes"):
             # Unretweet
             if self.common.settings.get("retweets_likes_delete_retweets"):
@@ -284,12 +371,12 @@ class Twitter(object):
                 )
                 tweets = (
                     self.common.session.query(Tweet)
-                    .filter(Tweet.user_id == int(self.common.settings.get("user_id")))
-                    .filter(Tweet.is_deleted == 0)
-                    .filter(Tweet.is_retweet == 1)
-                    .filter(Tweet.created_at < datetime_threshold)
-                    .order_by(Tweet.created_at)
-                    .all()
+                        .filter(Tweet.user_id == int(self.common.settings.get("user_id")))
+                        .filter(Tweet.is_deleted == 0)
+                        .filter(Tweet.is_retweet == 1)
+                        .filter(Tweet.created_at < datetime_threshold)
+                        .order_by(Tweet.created_at)
+                        .all()
                 )
 
                 click.secho(
@@ -327,129 +414,55 @@ class Twitter(object):
                 self.common.session.commit()
                 self.common.log("Deleted %s retweets" % count)
 
-            # Unlike
-            if self.common.settings.get("retweets_likes_delete_likes"):
-                datetime_threshold = datetime.datetime.utcnow() - datetime.timedelta(
-                    days=self.common.settings.get("retweets_likes_likes_threshold")
-                )
-                tweets = (
-                    self.common.session.query(Tweet)
+    def remove_likes(self):
+        if self.common.settings.get("retweets_likes_delete_likes"):
+            datetime_threshold = datetime.datetime.utcnow() - datetime.timedelta(
+                days=self.common.settings.get("retweets_likes_likes_threshold")
+            )
+            tweets = (
+                self.common.session.query(Tweet)
                     .filter(Tweet.user_id != int(self.common.settings.get("user_id")))
                     .filter(Tweet.is_unliked == False)
                     .filter(Tweet.favorited == True)
                     .filter(Tweet.created_at < datetime_threshold)
                     .order_by(Tweet.created_at)
                     .all()
-                )
-
-                click.secho(
-                    "Unliking {} tweets, starting with the earliest".format(
-                        len(tweets)
-                    ),
-                    fg="cyan",
-                )
-
-                count = 0
-                for tweet in tweets:
-                    try:
-                        self.api.destroy_favorite(tweet.status_id)
-                        tweet.unlike_summarize()
-                        tweet.is_unliked = True
-                        self.common.session.add(tweet)
-                    except tweepy.error.TweepError as e:
-                        if e.api_code == 144:
-                            click.echo(
-                                "Error, tweet {} is already unliked, updating database".format(
-                                    tweet.status_id
-                                )
-                            )
-                            tweet.is_unliked = True
-                            self.common.session.add(tweet)
-                        else:
-                            click.echo(
-                                "Error for tweet {}: {}".format(tweet.status_id, e)
-                            )
-
-                    count += 1
-                    if count % 20 == 0:
-                        self.common.session.commit()
-
-                self.common.session.commit()
-                self.common.log("Unliked %s tweets" % count)
-
-        # Deleting tweets
-        if self.common.settings.get("delete_tweets"):
-            tweets_to_delete = self.common.get_tweets_to_delete()
+            )
 
             click.secho(
-                "Deleting {} tweets, starting with the earliest".format(
-                    len(tweets_to_delete)
+                "Unliking {} tweets, starting with the earliest".format(
+                    len(tweets)
                 ),
                 fg="cyan",
             )
 
             count = 0
-            for tweet in tweets_to_delete:
+            for tweet in tweets:
                 try:
-                    self.api.destroy_status(tweet.status_id)
-                    tweet.delete_summarize()
-                    tweet.is_deleted = True
+                    self.api.destroy_favorite(tweet.status_id)
+                    tweet.unlike_summarize()
+                    tweet.is_unliked = True
                     self.common.session.add(tweet)
                 except tweepy.error.TweepError as e:
                     if e.api_code == 144:
                         click.echo(
-                            "Error, tweet {} is already deleted, updating database".format(
+                            "Error, tweet {} is already unliked, updating database".format(
                                 tweet.status_id
                             )
                         )
-                        tweet.is_deleted = True
+                        tweet.is_unliked = True
                         self.common.session.add(tweet)
                     else:
-                        click.echo("Error for tweet {}: {}".format(tweet.status_id, e))
+                        click.echo(
+                            "Error for tweet {}: {}".format(tweet.status_id, e)
+                        )
 
                 count += 1
                 if count % 20 == 0:
                     self.common.session.commit()
 
             self.common.session.commit()
-            self.common.log("Deleted %s tweets" % count)
-
-        # Delete DMs
-        if self.common.settings.get("delete_dms"):
-            datetime_threshold = datetime.datetime.utcnow() - datetime.timedelta(
-                days=self.common.settings.get("dms_days_threshold")
-            )
-
-            # Sadly, only the last 30 days worth
-            # https://developer.twitter.com/en/docs/direct-messages/sending-and-receiving/api-reference/list-events
-            click.secho(
-                "Fetching direct message metadata for the last 30 days", fg="cyan"
-            )
-
-            # Fetch direct messages
-            count = 0
-            for page in tweepy.Cursor(self.api.list_direct_messages).pages():
-                for dm in page:
-                    created_timestamp = datetime.datetime.fromtimestamp(
-                        int(dm.created_timestamp) / 1000
-                    )
-                    if created_timestamp <= datetime_threshold:
-                        self.api.destroy_direct_message(dm.id)
-                        click.echo(
-                            "Deleted DM {}, id {}".format(
-                                created_timestamp.strftime("%Y-%m-%d"), dm.id
-                            )
-                        )
-                        count += 1
-                    else:
-                        click.secho(
-                            "Skipping DM {}, id {}".format(
-                                created_timestamp.strftime("%Y-%m-%d"), dm.id
-                            ),
-                            dim=True,
-                        )
-
-            self.common.log("Deleted %s DMs" % count)
+            self.common.log("Unliked %s tweets" % count)
 
     def unlike(self, filename):
         # Validate filename
@@ -468,7 +481,7 @@ class Twitter(object):
             if not js_string.startswith(expected_start):
                 click.echo("File expected to start with: `window.YTD.like.part0 = `")
                 return
-            json_string = js_string[len(expected_start) :]
+            json_string = js_string[len(expected_start):]
             try:
                 likes = json.loads(json_string)
             except:
@@ -527,10 +540,10 @@ class Twitter(object):
         click.secho("Loading tweets from database", fg="cyan")
         loaded_status_ids = []
         for tweet in (
-            self.common.session.query(Tweet)
-            .filter(Tweet.status_id.in_(like_status_ids))
-            .order_by(Tweet.created_at.desc())
-            .all()
+                self.common.session.query(Tweet)
+                        .filter(Tweet.status_id in like_status_ids)
+                        .order_by(Tweet.created_at.desc())
+                        .all()
         ):
             if tweet.created_at < datetime_threshold:
                 all_tweets.append(tweet)
@@ -691,7 +704,7 @@ class Twitter(object):
                     "File expected to start with: `window.YTD.direct_message`"
                 )
                 return
-            json_string = js_string[len(expected_start) :]
+            json_string = js_string[len(expected_start):]
             try:
                 conversations = json.loads(json_string)
             except:
