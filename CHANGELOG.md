@@ -1,5 +1,9 @@
 # Semiphemeral Changelog
 
+## 0.8
+
+* Feature: Support for importing tweets from a Twitter Archive download
+
 ## 0.7
 
 * Feature: Support for proxies, including Tor

@@ -25,15 +25,15 @@ def header_size(stream: BinaryIO, separator: bytes = b'[') -> int:
 
 
 def paged_iterable(f):
-    return filter(lambda v: v is not None, more_itertools.grouper(ijson.items(f, "item.tweet.id"), n=200))
+    return more_itertools.grouper(ijson.items(f, "item.tweet.id"), n=200)
 
 
-class TwitterData:
+class TwitterArchive:
     def __init__(self, common, twitter) -> None:
         self.common = common
         self.twitter = twitter
 
-    def import_twitterdata(self, filename: str) -> None:
+    def import_twitterarchive(self, filename: str) -> None:
         with open(filename, "rb") as f:
             f.seek(header_size(f))
 

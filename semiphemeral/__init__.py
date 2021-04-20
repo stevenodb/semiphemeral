@@ -4,7 +4,7 @@ import click
 from .common import Common
 from .settings import Settings
 from .db import create_db
-from .twitterdata import TwitterData
+from .twitterarchive import TwitterArchive
 from .web import create_app
 from .twitter import Twitter
 from .exclusions import Exclusions
@@ -137,15 +137,15 @@ def excluded_import(filename):
 
 
 @main.command(
-    "twitterdata",
-    short_help="Imports from twitter data",
+    "twitterarchive",
+    short_help="Imports from twitter archive data",
 )
 @click.option(
     "--filename",
     required=True,
     help="JSON file to import from",
 )
-def twitterdata_import(filename):
+def twitterarchive_import(filename):
     cmn = init()
-    td = TwitterData(cmn, Twitter(cmn))
-    td.import_twitterdata(filename)
+    td = TwitterArchive(cmn, Twitter(cmn))
+    td.import_twitterarchive(filename)
