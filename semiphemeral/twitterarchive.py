@@ -44,7 +44,7 @@ class TwitterArchive:
                 statuses = map(self.retrieve_status, unknown_status_ids)
                 import_count += self.twitter.import_statuses(statuses)
 
-            click.echo("Imported {} tweets from Twitter Data.".format(import_count))
+            click.echo("Imported {} tweets from Twitter Archive.".format(import_count))
 
     def is_unknown_tweet(self, status_id) -> bool:
         return status_id and not self.common.session.query(Tweet).filter_by(status_id=status_id).first()
