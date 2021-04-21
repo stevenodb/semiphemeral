@@ -39,7 +39,6 @@ class TwitterArchive:
 
             import_count = 0
             for page in paged_iterable(f):
-                print(page)
                 unknown_status_ids = filter(self.is_unknown_tweet, page)
                 statuses = map(self.retrieve_status, unknown_status_ids)
                 import_count += self.twitter.import_statuses(statuses)
